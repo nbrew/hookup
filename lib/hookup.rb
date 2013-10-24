@@ -128,7 +128,8 @@ class Hookup
 
     def bundle
       return unless bundler?
-      if %x{git diff --name-only #{old} #{new}} =~ /^Gemfile|\.gemspec$/
+      result = %x{git diff --name-only #{old} #{new}}
+      if result =~ /^Gemfile|\.gemspec$/
         begin
           # If Bundler in turn spawns Git, it can get confused by $GIT_DIR
           git_dir = ENV.delete('GIT_DIR')
@@ -138,6 +139,8 @@ class Hookup
             Dir.chdir(working_dir) do
               system("bundle | grep -v '^Using ' | grep -v ' is complete'")
             end
+          else
+            system('git', 'checkout', '--', 'Gemfile.lock') if result =~ /^Gemfile\.lock$/
           end
         ensure
           ENV['GIT_DIR'] = git_dir
