@@ -8,6 +8,8 @@ class Hookup
 
   EMPTY_DIR = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 
+  attr_reader :git_hooks_post_checkout, :git_info_attributes
+
   def self.run(*argv)
     new.run(*argv)
   rescue Failure => e
@@ -44,17 +46,37 @@ class Hookup
   def install
     append(File.join(git_dir, 'hooks', 'post-checkout'), 0777) do |body, f|
       f.puts "#!/bin/bash" unless body
-      f.puts %(hookup post-checkout "$@") if body !~ /hookup/
+      f.puts git_hooks_post_checkout if body !~ /hookup/
     end
 
     append(File.join(git_dir, 'info', 'attributes')) do |body, f|
-      map = 'db/schema.rb merge=railsschema'
+      map = git_info_attributes
       f.puts map unless body.to_s.include?(map)
     end
 
     system 'git', 'config', 'merge.railsschema.driver', 'hookup resolve-schema %A %O %B %L'
 
     puts "Hooked up!"
+  end
+
+  def remove
+    regexp = /#{Regexp.escape(git_hooks_post_checkout)}\n$/
+    file = File.join(git_dir, 'hooks', 'post-checkout')
+    gsub_strip_file(file, regexp)
+    File.delete file if "#!/bin/bash\n" == File.read(file)
+
+    regexp = /#{Regexp.escape(git_info_attributes)}\n$/
+    file = File.join(git_dir, 'info', 'attributes')
+    gsub_strip_file(file, regexp)
+    File.delete file if File.read(file).empty?
+
+    system 'git', 'config', '--unset', 'merge.railsschema.driver'
+
+    # remove the merge.railsschema section if it's empty (on linux/mac os)
+    # otherwise, you're left with a possibly empty merge.railsschema section
+    # [ ! `git config -l | grep merge.railsschema.` ] && git config --remove-section merge.railsschema
+
+    puts "Unhooked!"
   end
 
   def append(file, *args)
@@ -65,6 +87,23 @@ class Hookup
     end
   end
   protected :append
+
+  def gsub_strip_file(file, regexp, *args)
+    content = File.read(file) if File.exist?(file)
+    content.gsub!(regexp, '')
+    File.open(file, 'wb', *args) { |f| f.write(content) }
+  end
+  protected :gsub_strip_file
+
+  def git_hooks_post_checkout
+    %(hookup post-checkout "$@")
+  end
+  private :git_hooks_post_checkout
+
+  def git_info_attributes
+    'db/schema.rb merge=railsschema'
+  end
+  private :git_hooks_post_checkout
 
   def post_checkout(*args)
     PostCheckout.new(ENV, *args).run
